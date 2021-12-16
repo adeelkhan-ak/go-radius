@@ -7,6 +7,10 @@ RADIUS is an AAA (authentication, authorization, and accounting) protocol that m
 
 ### How to run
 ```
+# Get the gopacket package from GitHub
+go get github.com/google/gopacket
+# Pcap dev headers might be necessary
+sudo apt-get install libpcap-dev
 go build main.go  
 ./main -h       
 ```
