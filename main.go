@@ -4,8 +4,11 @@ package main
 // tcpdump -w test.pcap
 import (
 	"fmt"
+	"html"
 	"log"
 	"os"
+	"os/exec"
+	"runtime"
 	"time"
 
 	"github.com/google/gopacket"
@@ -46,6 +49,49 @@ type radius struct {
 	PacketIdentifier uint8
 	Length           uint16
 	Authenticator    [16]byte
+}
+
+var clear map[string]func() //create a map for storing clear funcs
+
+func init() {
+	clear = make(map[string]func()) //Initialize it
+	clear["linux"] = func() {
+		cmd := exec.Command("clear") //Linux example, its tested
+		cmd.Stdout = os.Stdout
+		cmd.Run()
+	}
+	clear["windows"] = func() {
+		cmd := exec.Command("cmd", "/c", "cls") //Windows example, its tested
+		cmd.Stdout = os.Stdout
+		cmd.Run()
+	}
+}
+
+func CallClear() {
+	value, ok := clear[runtime.GOOS] //runtime.GOOS -> linux, windows, darwin etc.
+	if ok {                          //if we defined a clear func for that platform:
+		value() //we execute it
+	} else { //unsupported platform
+		panic("Your platform is unsupported! I can't clear terminal screen :(")
+	}
+}
+func logo() {
+
+	colorReset := "\033[0m"
+	colorGreen := "\033[32m"
+	colorRed := "\033[31m"
+	fmt.Print(string(colorRed), "")
+	fmt.Print(string(colorGreen), "")
+	str := html.UnescapeString("\u26AA")
+	s := html.UnescapeString("\U0001F1F5\U0001F1F0")
+	fmt.Println("            _ __   __ __    ___   __ __ ___  ")
+	fmt.Printf("   	   | '_ \\ / _` /____| |%s || ||/ __|  \n", str)
+	fmt.Println("   	   | |_) | (_| | |__| ||| ||_||\\__ \\  ")
+	fmt.Println("   	   | .__/ \\__,_|____/\\|||_|___|/___/  ")
+	fmt.Println("   	   | |\\ \\                          ")
+	fmt.Printf("   	   |_| |_|")
+	fmt.Println(string(colorReset), "", s)
+
 }
 
 const hexDigit = "0123456789abcdef"
@@ -184,6 +230,11 @@ func main() {
 			return
 		}
 	}
+
+	CallClear()
+	//fmt.Print("\033[2J") //Clear screen
+	logo()
+
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -196,9 +247,10 @@ func main() {
 	// Loop through packets in file
 	packetSource := gopacket.NewPacketSource(handle, handle.LinkType())
 	for packet := range packetSource.Packets() {
+		fmt.Printf("\033[%d;%dH", 8, 1)
 		// Do something with a packet here.
 		printPacketInfo(packet)
-		return
+		// return
 	}
 
 }
