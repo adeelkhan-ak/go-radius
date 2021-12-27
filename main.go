@@ -2,7 +2,6 @@ package main
 
 // Use tcpdump to create a test file
 // tcpdump -w test.pcap
-
 import (
 	"fmt"
 	"log"
@@ -10,6 +9,7 @@ import (
 	"time"
 
 	"github.com/google/gopacket"
+	"github.com/google/gopacket/layers"
 	"github.com/google/gopacket/pcap"
 )
 
@@ -23,44 +23,136 @@ var (
 	pcapFile    string
 )
 
+type radius_attr struct {
+	Type   byte
+	Length byte
+}
+type ethernet struct {
+	SrcMAC       string
+	DstMAC       string
+	EthernetType string
+}
+type ip struct {
+	SrcIP string
+	DstIP string
+}
+
+type port struct {
+	SrcPort uint16
+	DstPort uint16
+}
+type radius struct {
+	Code             uint8
+	PacketIdentifier uint8
+	Length           uint16
+	Authenticator    [16]byte
+}
+
+const hexDigit = "0123456789abcdef"
+
+func ethernet_parser(ethernet []byte) string {
+	if len(ethernet) == 0 {
+		return ""
+	}
+	buf := make([]byte, 0, len(ethernet)*3-1)
+	for i, b := range ethernet {
+		if i > 0 {
+			buf = append(buf, ':')
+		}
+		buf = append(buf, hexDigit[b>>4])
+		buf = append(buf, hexDigit[b&0xF])
+	}
+	return string(buf)
+}
 func printPacketInfo(packet gopacket.Packet) {
+
+	var r_attr radius_attr
+	var eth_net ethernet
+	var ip_layer ip
+	var udpPort port
+	var radius radius
+	// Layer2
+	ethernetLayer := packet.Layer(layers.LayerTypeEthernet)
+	if ethernetLayer != nil {
+		fmt.Println("Ethernet layer detected.")
+		ethernetPacket, _ := ethernetLayer.(*layers.Ethernet)
+		eth_net.SrcMAC = ethernet_parser(ethernetPacket.SrcMAC)
+		eth_net.DstMAC = ethernet_parser(ethernetPacket.DstMAC)
+		fmt.Println("Source MAC: ", eth_net.SrcMAC)
+		fmt.Println("Destination MAC: ", eth_net.DstMAC)
+		eth_net.EthernetType = fmt.Sprint("", ethernetPacket.EthernetType)
+
+		fmt.Println("Ethernet type: ", eth_net.EthernetType)
+		fmt.Println()
+	}
+
+	// Layer 3
+	ipLayer := packet.Layer(layers.LayerTypeIPv4)
+	if ipLayer != nil {
+		fmt.Println("IPv4 layer detected.")
+		ip, _ := ipLayer.(*layers.IPv4)
+		ip_layer.DstIP = fmt.Sprint("", ip.DstIP)
+		ip_layer.SrcIP = fmt.Sprint("", ip.SrcIP)
+		fmt.Printf("From %s to %s\n", ip_layer.SrcIP, ip_layer.DstIP)
+		fmt.Println("Protocol: ", ip.Protocol)
+		//fmt.Println()
+	}
+
+	// Layer 4
+	udpLayer := packet.Layer(layers.LayerTypeUDP)
+	if udpLayer != nil {
+		udp, _ := udpLayer.(*layers.UDP)
+		udpPort.SrcPort = uint16(udp.SrcPort)
+		udpPort.DstPort = uint16(udp.DstPort)
+
+		fmt.Printf("From port %d to %d\n", udpPort.SrcPort, udpPort.DstPort)
+		fmt.Println()
+	}
+	// Iterate over all layers, printing out each layer type
+	fmt.Println("All packet layers:")
+	for _, layer := range packet.Layers() {
+		fmt.Println("- ", layer.LayerType())
+	}
 
 	// this applicationLayer. applicationLayer contains the payload
 	applicationLayer := packet.ApplicationLayer()
 	if applicationLayer != nil {
+		fmt.Println("Application layer/Payload found.")
+		//fmt.Printf("%s\n", applicationLayer.Payload())
 
-		paylaod := packet.Data()
-		paylaod = paylaod[42:]
-		// Radius header
-		radius_code := uint8(paylaod[0])
-		fmt.Printf("accounting REquest : %d\n", radius_code)
-		radius_id := uint8(paylaod[1])
-		fmt.Printf("Packet identifier : %d\n", radius_id)
-		l := uint16(paylaod[2])<<8 | uint16(paylaod[3])
-		fmt.Printf("Length : %d\n", l)
-		var authenticator [16]byte
-		for i := range authenticator {
-			authenticator[i] = paylaod[4+i]
-		}
-		fmt.Printf("Authenticator : %x\n", authenticator)
-		paylaod = paylaod[20:]
-		//fmt.Println("length ", len(paylaod))
-		for len(paylaod) > 1 {
-			types := paylaod[0]
-			//fmt.Printf("types %d: ", types)
-			length := paylaod[1]
-			if types == 31 {
-				fmt.Printf("Calling station id : %s\n", paylaod[1:14])
+	}
 
-			}
-			paylaod = paylaod[length:]
-			//fmt.Println("length : ", length)
+	paylaod := packet.Data()
+	paylaod = paylaod[42:]
+	// Radius header
+	radius.Code = uint8(paylaod[0])
+	fmt.Printf("accounting REquest : %d\n", radius.Code)
+	radius.PacketIdentifier = uint8(paylaod[1])
+	fmt.Printf("Packet identifier : %d\n", radius.PacketIdentifier)
+	radius.Length = uint16(paylaod[2])<<8 | uint16(paylaod[3])
+	fmt.Printf("Length : %d\n", radius.Length)
+	// var authenticator [16]byte
+	for i := range radius.Authenticator {
+		radius.Authenticator[i] = paylaod[4+i]
+	}
+	fmt.Printf("Authenticator : %x\n", radius.Authenticator)
+	paylaod = paylaod[20:]
+	//fmt.Println("length ", len(paylaod))
+	for len(paylaod) > 1 {
+		r_attr.Type = paylaod[0]
+		//fmt.Printf("types %d: ", types)
+		r_attr.Length = paylaod[1]
+		if r_attr.Type == 31 {
+			fmt.Printf("Calling station id : %s\n", paylaod[1:14])
 
 		}
-		// Check for errors
-		if err := packet.ErrorLayer(); err != nil {
-			fmt.Println("Error decoding some part of the packet:", err)
-		}
+		paylaod = paylaod[r_attr.Length:]
+		//fmt.Println("length : ", length)
+
+	}
+	// Check for errors
+	if err := packet.ErrorLayer(); err != nil {
+		fmt.Println("Error decoding some part of the packet:", err)
 	}
 }
 func main() {
