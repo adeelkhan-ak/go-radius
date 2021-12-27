@@ -1,3 +1,5 @@
+![image](https://user-images.githubusercontent.com/67287458/147471198-93d37a4d-93bf-4c89-9dee-a29e8c3479af.png)
+
 # go-radius
 Radius parsing in golang using gopacket. You can parse from either live traffic or from pcap of your choice.
 
